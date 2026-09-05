@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .venv/
+.cache/
+out/
+.pytest_cache/

@@ -125,7 +125,10 @@ class CanvaClient:
         return job.get("urls", [])
 
     def download(self, url: str) -> bytes:
-        resp = self._request("GET", url)
+        # Canva export URLs are pre-signed; send no Authorization header.
+        resp = self._session.get(url, timeout=60)
+        if resp.status_code >= 400:
+            raise CanvaError(f"GET {url} -> {resp.status_code}")
         return resp.content
 
     # --- high level ----------------------------------------------------
