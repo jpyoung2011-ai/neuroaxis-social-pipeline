@@ -25,7 +25,6 @@ def test_refresh_sets_tokens_and_invokes_callback():
     assert c.access_token == "at-1"
     assert c.refresh_token == "rt-new"
     assert seen == ["rt-new"]
-    # Basic auth header present
     sent = responses.calls[0].request
     assert sent.headers["Authorization"].startswith("Basic ")
     assert "grant_type=refresh_token" in sent.body
@@ -40,6 +39,16 @@ def test_refresh_callback_skipped_when_token_unchanged():
     c = make_client(on_token_refresh=seen.append)
     c.refresh()
     assert seen == []
+
+
+@responses.activate
+def test_refresh_error_redacts_client_secret():
+    responses.add(responses.POST, TOKEN_URL, status=400,
+                  body="invalid_client: csecret rejected")
+    c = make_client()
+    with pytest.raises(CanvaError) as exc:
+        c.refresh()
+    assert "csecret" not in str(exc.value)
 
 
 @responses.activate
@@ -125,7 +134,7 @@ def test_render_end_to_end():
                   json={"job": {"id": "e", "status": "in_progress"}})
     responses.add(responses.GET, f"{API}/exports/e",
                   json={"job": {"id": "e", "status": "success",
-                                "urls": ["https://dl.canva/final.png"]}})
+                                "urls": ["https://dl.canva/final.png?sig=SECRET"]}})
     responses.add(responses.GET, "https://dl.canva/final.png",
                   body=b"\x89PNG_bytes", content_type="image/png")
     c = make_client()
@@ -133,6 +142,17 @@ def test_render_end_to_end():
                                fields={"headline": "H", "body": "B", "cta": "C"})
     assert png == b"\x89PNG_bytes"
     assert design_url == "https://canva.com/d/DSGN"
+
+
+@responses.activate
+def test_download_error_omits_signed_query_string():
+    responses.add(responses.POST, TOKEN_URL, json={
+        "access_token": "at", "refresh_token": "rt-old", "expires_in": 999})
+    responses.add(responses.GET, "https://dl.canva/x.png", status=403)
+    c = make_client()
+    with pytest.raises(CanvaError) as exc:
+        c.download("https://dl.canva/x.png?sig=SECRETSIG&exp=123")
+    assert "SECRETSIG" not in str(exc.value)
 
 
 @responses.activate

@@ -18,11 +18,18 @@ from __future__ import annotations
 import base64
 import time
 from typing import Callable
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
 _API = "https://api.canva.com/rest/v1"
 _TERMINAL = {"success", "failed"}
+
+
+def _safe_url(url: str) -> str:
+    """Drop the query string — Canva download URLs carry signed credentials."""
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
 class CanvaError(RuntimeError):
@@ -66,7 +73,9 @@ class CanvaClient:
             timeout=30,
         )
         if resp.status_code != 200:
-            raise CanvaError(f"token refresh failed ({resp.status_code}): {resp.text}")
+            raise CanvaError(
+                f"token refresh failed ({resp.status_code}): "
+                f"{self._scrub(resp.text)}")
         payload = resp.json()
         self.access_token = payload["access_token"]
         new_refresh = payload.get("refresh_token", self.refresh_token)
@@ -86,8 +95,18 @@ class CanvaClient:
             headers["Authorization"] = f"Bearer {self.access_token}"
             resp = self._session.request(method, url, headers=headers, timeout=60, **kwargs)
         if resp.status_code >= 400:
-            raise CanvaError(f"{method} {url} -> {resp.status_code}: {resp.text}")
+            raise CanvaError(
+                f"{method} {_safe_url(url)} -> {resp.status_code}: "
+                f"{self._scrub(resp.text)}")
         return resp
+
+    def _scrub(self, text: str) -> str:
+        """Redact this client's own tokens from any text bound for logs/errors."""
+        for secret in (self.access_token, self.refresh_token,
+                       self._client_secret):
+            if secret:
+                text = text.replace(secret, "***")
+        return text
 
     # --- autofill ---------------------------------------------------------
 
@@ -128,7 +147,7 @@ class CanvaClient:
         # Canva export URLs are pre-signed; send no Authorization header.
         resp = self._session.get(url, timeout=60)
         if resp.status_code >= 400:
-            raise CanvaError(f"GET {url} -> {resp.status_code}")
+            raise CanvaError(f"GET {_safe_url(url)} -> {resp.status_code}")
         return resp.content
 
     # --- high level ----------------------------------------------------
