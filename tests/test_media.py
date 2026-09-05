@@ -33,7 +33,8 @@ def test_publish_media_clones_writes_commits_pushes(tmp_path):
         if _verb(cmd) == "clone":
             Path(cmd[-1]).mkdir(parents=True, exist_ok=True)
             (Path(cmd[-1]) / ".git").mkdir()
-        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        out = " M media/x.png" if _verb(cmd) == "status" else ""
+        return type("R", (), {"returncode": 0, "stdout": out, "stderr": ""})()
 
     url = publish_media(
         b"PNGDATA", slug="Time Blindness", batch="Batch 2 - 2026-09-12",
@@ -66,6 +67,21 @@ def test_publish_media_pulls_when_already_cloned(tmp_path):
                   workdir=workdir, run=fake_run)
     assert "clone" not in verbs
     assert "pull" in verbs
+
+
+def test_publish_media_skips_commit_when_nothing_changed(tmp_path):
+    workdir = tmp_path / "assets"
+    (workdir / ".git").mkdir(parents=True)
+    verbs = []
+
+    def fake_run(cmd, **kw):
+        verbs.append(_verb(cmd))
+        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    publish_media(b"X", slug="x", batch="b", repo="acme/assets", token="t",
+                  workdir=workdir, run=fake_run)
+    assert "commit" not in verbs
+    assert "push" not in verbs
 
 
 def test_publish_media_raises_on_git_failure_and_redacts_token(tmp_path):

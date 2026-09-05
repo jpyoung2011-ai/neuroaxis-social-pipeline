@@ -148,7 +148,8 @@ def build_schedule(
     candidates.sort()
 
     week_pattern = order_by_mix(mix) or ["TOFU"]
-    target_stages = (week_pattern * (weeks + 1))[: len(candidates)]
+    repeats = len(candidates) // len(week_pattern) + 2
+    target_stages = (week_pattern * repeats)[: len(candidates)]
     ordered_items = _assign_items(target_stages, items)
 
     n = min(len(ordered_items), len(candidates))

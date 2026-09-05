@@ -66,13 +66,15 @@ def publish_media(
                 text = text.replace(secret, "***")
         return text
 
-    def git(*args: str, auth: bool = False, cwd: Path | None = None) -> None:
+    def git(*args: str, auth: bool = False, cwd: Path | None = None,
+            check: bool = True) -> str:
         cmd = ["git", *((["-c", auth_arg] if auth else [])), *args]
         result = run(cmd, cwd=str(cwd) if cwd else None,
                      capture_output=True, text=True, env=identity)
-        if getattr(result, "returncode", 0) != 0:
+        if check and getattr(result, "returncode", 0) != 0:
             detail = getattr(result, "stderr", "") or getattr(result, "stdout", "")
             raise MediaError(f"git {' '.join(args)} failed: {_redact(detail)}")
+        return getattr(result, "stdout", "") or ""
 
     if (workdir / ".git").exists():
         git("pull", "--quiet", auth=True, cwd=workdir)
@@ -86,7 +88,8 @@ def publish_media(
     dest.write_bytes(png)
 
     git("add", str(rel), cwd=workdir)
-    git("commit", "-m", f"add {rel.as_posix()}", "--quiet", cwd=workdir)
-    git("push", "--quiet", remote, "HEAD:main", auth=True, cwd=workdir)
+    if git("status", "--porcelain", cwd=workdir).strip():
+        git("commit", "-m", f"add {rel.as_posix()}", "--quiet", cwd=workdir)
+        git("push", "--quiet", remote, "HEAD:main", auth=True, cwd=workdir)
 
     return raw_url(repo, batch, slug)

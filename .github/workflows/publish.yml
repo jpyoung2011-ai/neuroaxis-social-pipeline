@@ -13,10 +13,6 @@ on:
         description: "generate: number of posts in the batch"
         required: false
         default: "5"
-      batch_label:
-        description: "generate: Notion batch label (blank = auto)"
-        required: false
-        default: ""
       dry_run:
         description: "run without external writes"
         required: false
@@ -74,15 +70,15 @@ jobs:
           INCLUDE_WEEKENDS: ${{ vars.INCLUDE_WEEKENDS }}
           BRAND_NAME: ${{ vars.BRAND_NAME }}
           BRAND_WEBSITE: ${{ vars.BRAND_WEBSITE }}
+          # inputs via env (not string-interpolated into the script) so a
+          # workflow_dispatch value can never break out of the shell command
+          IN_COMMAND: ${{ github.event.inputs.command || 'publish' }}
+          IN_COUNT: ${{ github.event.inputs.count || '5' }}
+          IN_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
-          CMD="${{ github.event.inputs.command || 'publish' }}"
-          ARGS=""
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
-          if [ "$CMD" = "generate" ]; then
-            ARGS="$ARGS --count ${{ github.event.inputs.count || '5' }}"
-            if [ -n "${{ github.event.inputs.batch_label }}" ]; then
-              ARGS="$ARGS --batch-label \"${{ github.event.inputs.batch_label }}\""
-            fi
-          fi
-          echo "Running: $CMD $ARGS"
-          eval "python -m src.pipeline $CMD $ARGS"
+          set -euo pipefail
+          ARGS=()
+          [ "$IN_DRY_RUN" = "true" ] && ARGS+=(--dry-run)
+          [ "$IN_COMMAND" = "generate" ] && ARGS+=(--count "$IN_COUNT")
+          echo "Running: $IN_COMMAND ${ARGS[*]:-}"
+          python -m src.pipeline "$IN_COMMAND" ${ARGS[@]+"${ARGS[@]}"}
