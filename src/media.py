@@ -10,6 +10,7 @@ Swap this module for an S3/Cloudinary uploader without touching anything else â€
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 import subprocess
@@ -44,7 +45,12 @@ def publish_media(
     run: _RUN = subprocess.run,
 ) -> str:
     workdir = Path(workdir)
-    remote = f"https://x-access-token:{token}@github.com/{repo}.git"
+    remote = f"https://github.com/{repo}.git"
+    # Auth is supplied per-invocation as an HTTP header so the token never lands
+    # in .git/config or a remote URL. It is still redacted from any error text.
+    auth_b64 = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    auth_arg = f"http.extraheader=AUTHORIZATION: basic {auth_b64}"
+    _secrets = (token, auth_b64)
 
     identity = {
         **os.environ,
@@ -54,19 +60,25 @@ def publish_media(
         "GIT_COMMITTER_EMAIL": "pipeline@neuroaxis.local",
     }
 
-    def git(*args: str, cwd: Path | None = None) -> None:
-        result = run(["git", *args], cwd=str(cwd) if cwd else None,
+    def _redact(text: str) -> str:
+        for secret in _secrets:
+            if secret:
+                text = text.replace(secret, "***")
+        return text
+
+    def git(*args: str, auth: bool = False, cwd: Path | None = None) -> None:
+        cmd = ["git", *((["-c", auth_arg] if auth else [])), *args]
+        result = run(cmd, cwd=str(cwd) if cwd else None,
                      capture_output=True, text=True, env=identity)
         if getattr(result, "returncode", 0) != 0:
-            raise MediaError(
-                f"git {' '.join(args)} failed: "
-                f"{getattr(result, 'stderr', '') or getattr(result, 'stdout', '')}")
+            detail = getattr(result, "stderr", "") or getattr(result, "stdout", "")
+            raise MediaError(f"git {' '.join(args)} failed: {_redact(detail)}")
 
     if (workdir / ".git").exists():
-        git("pull", "--quiet", cwd=workdir)
+        git("pull", "--quiet", auth=True, cwd=workdir)
     else:
         workdir.parent.mkdir(parents=True, exist_ok=True)
-        git("clone", "--depth", "1", remote, str(workdir))
+        git("clone", "--depth", "1", remote, str(workdir), auth=True)
 
     rel = Path("media") / slugify(batch) / f"{slugify(slug)}.png"
     dest = workdir / rel
@@ -75,6 +87,6 @@ def publish_media(
 
     git("add", str(rel), cwd=workdir)
     git("commit", "-m", f"add {rel.as_posix()}", "--quiet", cwd=workdir)
-    git("push", "--quiet", remote, "HEAD:main", cwd=workdir)
+    git("push", "--quiet", remote, "HEAD:main", auth=True, cwd=workdir)
 
     return raw_url(repo, batch, slug)

@@ -5,6 +5,14 @@ import pytest
 from src.media import MediaError, publish_media, raw_url, slugify
 
 
+def _verb(cmd):
+    """The git subcommand, skipping any leading -c <config> pairs."""
+    i = 1
+    while i < len(cmd) and cmd[i] == "-c":
+        i += 2
+    return cmd[i] if i < len(cmd) else None
+
+
 def test_slugify():
     assert slugify("Time Blindness Explainer!") == "time-blindness-explainer"
     assert slugify("ADHD & You") == "adhd-you"
@@ -21,29 +29,28 @@ def test_publish_media_clones_writes_commits_pushes(tmp_path):
     calls = []
 
     def fake_run(cmd, **kw):
-        calls.append((list(cmd), kw.get("cwd")))
-        # simulate clone creating the dir
-        if cmd[:2] == ["git", "clone"]:
+        calls.append(list(cmd))
+        if _verb(cmd) == "clone":
             Path(cmd[-1]).mkdir(parents=True, exist_ok=True)
             (Path(cmd[-1]) / ".git").mkdir()
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-        return R()
+        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     url = publish_media(
         b"PNGDATA", slug="Time Blindness", batch="Batch 2 - 2026-09-12",
-        repo="acme/assets", token="ghp_x", workdir=tmp_path / "assets", run=fake_run)
+        repo="acme/assets", token="ghp_supersecret", workdir=tmp_path / "assets",
+        run=fake_run)
 
     assert url == ("https://raw.githubusercontent.com/acme/assets/main/"
                    "media/batch-2-2026-09-12/time-blindness.png")
     written = tmp_path / "assets" / "media" / "batch-2-2026-09-12" / "time-blindness.png"
     assert written.read_bytes() == b"PNGDATA"
-    verbs = [c[0][1] for c in calls]
-    assert "clone" in verbs and "add" in verbs and "commit" in verbs and "push" in verbs
-    # token must be embedded in the clone/push remote, not left bare
-    assert any("ghp_x@github.com" in " ".join(c[0]) for c in calls)
+    verbs = {_verb(c) for c in calls}
+    assert {"clone", "add", "commit", "push"} <= verbs
+
+    flat = " ".join(" ".join(c) for c in calls)
+    assert "ghp_supersecret" not in flat            # raw token never on the cmd line
+    assert "ghp_supersecret@github.com" not in flat  # nor in a remote URL
+    assert "http.extraheader=AUTHORIZATION: basic " in flat
 
 
 def test_publish_media_pulls_when_already_cloned(tmp_path):
@@ -52,12 +59,8 @@ def test_publish_media_pulls_when_already_cloned(tmp_path):
     verbs = []
 
     def fake_run(cmd, **kw):
-        verbs.append(cmd[1])
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-        return R()
+        verbs.append(_verb(cmd))
+        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     publish_media(b"X", slug="x", batch="b", repo="acme/assets", token="t",
                   workdir=workdir, run=fake_run)
@@ -65,14 +68,15 @@ def test_publish_media_pulls_when_already_cloned(tmp_path):
     assert "pull" in verbs
 
 
-def test_publish_media_raises_on_git_failure(tmp_path):
+def test_publish_media_raises_on_git_failure_and_redacts_token(tmp_path):
     def fake_run(cmd, **kw):
-        class R:
-            returncode = 1
-            stdout = ""
-            stderr = "boom"
-        return R()
+        return type("R", (), {
+            "returncode": 1, "stdout": "",
+            "stderr": "fatal: could not read from https://x-access-token:tok123@github.com",
+        })()
 
-    with pytest.raises(MediaError, match="boom"):
-        publish_media(b"X", slug="x", batch="b", repo="acme/assets", token="t",
+    with pytest.raises(MediaError) as exc:
+        publish_media(b"X", slug="x", batch="b", repo="acme/assets", token="tok123",
                       workdir=tmp_path / "assets", run=fake_run)
+    assert "tok123" not in str(exc.value)
+    assert "***" in str(exc.value)

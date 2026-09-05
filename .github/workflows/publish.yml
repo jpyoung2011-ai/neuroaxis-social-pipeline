@@ -1,0 +1,88 @@
+name: Social pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "generate or publish"
+        required: true
+        default: generate
+        type: choice
+        options: [generate, publish]
+      count:
+        description: "generate: number of posts in the batch"
+        required: false
+        default: "5"
+      batch_label:
+        description: "generate: Notion batch label (blank = auto)"
+        required: false
+        default: ""
+      dry_run:
+        description: "run without external writes"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Publish approved drafts twice a week (Tue & Fri, 08:00 UTC).
+    - cron: "0 8 * * 2,5"
+
+concurrency:
+  group: social-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          CANVA_CLIENT_ID: ${{ secrets.CANVA_CLIENT_ID }}
+          CANVA_CLIENT_SECRET: ${{ secrets.CANVA_CLIENT_SECRET }}
+          CANVA_REFRESH_TOKEN: ${{ secrets.CANVA_REFRESH_TOKEN }}
+          CANVA_BRAND_TEMPLATE_ID: ${{ secrets.CANVA_BRAND_TEMPLATE_ID }}
+          CANVA_FIELD_HEADLINE: ${{ vars.CANVA_FIELD_HEADLINE }}
+          CANVA_FIELD_BODY: ${{ vars.CANVA_FIELD_BODY }}
+          CANVA_FIELD_CTA: ${{ vars.CANVA_FIELD_CTA }}
+          METRICOOL_TOKEN: ${{ secrets.METRICOOL_TOKEN }}
+          METRICOOL_USER_ID: ${{ secrets.METRICOOL_USER_ID }}
+          METRICOOL_BLOG_ID: ${{ secrets.METRICOOL_BLOG_ID }}
+          METRICOOL_NETWORKS: ${{ vars.METRICOOL_NETWORKS }}
+          METRICOOL_TIMEZONE: ${{ vars.METRICOOL_TIMEZONE }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_CONTENT_DB_ID: ${{ secrets.NOTION_CONTENT_DB_ID }}
+          MEDIA_REPO: ${{ vars.MEDIA_REPO }}
+          MEDIA_REPO_TOKEN: ${{ secrets.MEDIA_REPO_TOKEN }}
+          APPROVAL_MODE: ${{ vars.APPROVAL_MODE }}
+          VETO_HOURS: ${{ vars.VETO_HOURS }}
+          BATCH_COUNT: ${{ vars.BATCH_COUNT }}
+          SCHEDULE_WEEKS: ${{ vars.SCHEDULE_WEEKS }}
+          POSTS_PER_WEEK: ${{ vars.POSTS_PER_WEEK }}
+          FUNNEL_MIX: ${{ vars.FUNNEL_MIX }}
+          SCHEDULE_SLOTS: ${{ vars.SCHEDULE_SLOTS }}
+          INCLUDE_WEEKENDS: ${{ vars.INCLUDE_WEEKENDS }}
+          BRAND_NAME: ${{ vars.BRAND_NAME }}
+          BRAND_WEBSITE: ${{ vars.BRAND_WEBSITE }}
+        run: |
+          CMD="${{ github.event.inputs.command || 'publish' }}"
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "$CMD" = "generate" ]; then
+            ARGS="$ARGS --count ${{ github.event.inputs.count || '5' }}"
+            if [ -n "${{ github.event.inputs.batch_label }}" ]; then
+              ARGS="$ARGS --batch-label \"${{ github.event.inputs.batch_label }}\""
+            fi
+          fi
+          echo "Running: $CMD $ARGS"
+          eval "python -m src.pipeline $CMD $ARGS"
