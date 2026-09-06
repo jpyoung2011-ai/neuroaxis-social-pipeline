@@ -193,7 +193,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parser().parse_args(argv)
-    settings = Settings.load()
+    scope = args.command + ("-dry" if getattr(args, "dry_run", False) else "")
+    settings = Settings.load(scope=scope)
     if args.command == "generate":
         return cmd_generate(settings, args)
     if args.command == "publish":

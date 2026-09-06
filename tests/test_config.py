@@ -93,3 +93,34 @@ def test_invalid_approval_mode_rejected(monkeypatch):
 def test_invalid_int_rejected(monkeypatch):
     with pytest.raises(ConfigError):
         _load({**REQUIRED_ENV, "SCHEDULE_WEEKS": "lots"}, monkeypatch)
+
+
+def test_smoke_scope_only_needs_canva_and_anthropic(monkeypatch):
+    env = {
+        "CANVA_CLIENT_ID": "c", "CANVA_CLIENT_SECRET": "c",
+        "CANVA_REFRESH_TOKEN": "c", "CANVA_BRAND_TEMPLATE_ID": "t",
+        "ANTHROPIC_API_KEY": "sk",
+    }
+    for key in list(REQUIRED_ENV) + ["APPROVAL_MODE"]:
+        monkeypatch.delenv(key, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    s = Settings.load(use_dotenv=False, scope="smoke")
+    assert s.canva_client_id == "c"
+
+
+def test_publish_scope_does_not_need_canva(monkeypatch):
+    env = {
+        "NOTION_TOKEN": "n", "NOTION_CONTENT_DB_ID": "db",
+        "METRICOOL_TOKEN": "m", "METRICOOL_USER_ID": "1", "METRICOOL_BLOG_ID": "2",
+    }
+    for key in list(REQUIRED_ENV):
+        monkeypatch.delenv(key, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    s = Settings.load(use_dotenv=False, scope="publish")
+    assert s.notion_token == "n"
+
+    monkeypatch.delenv("METRICOOL_TOKEN", raising=False)
+    with pytest.raises(ConfigError, match="METRICOOL_TOKEN"):
+        Settings.load(use_dotenv=False, scope="publish")

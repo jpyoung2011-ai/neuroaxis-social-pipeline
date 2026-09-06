@@ -92,11 +92,17 @@ Create an integration. Note the Client ID, generate a Client Secret. Enable scop
 
 ### 3. Authorize once, locally
 ```bash
-python -m venv .venv && . .venv/Scripts/activate   # or .venv/bin/activate
+python -m venv .venv              # first time only; skip if .venv already exists
+. .venv/Scripts/activate          # PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env        # fill in CANVA_CLIENT_ID / CANVA_CLIENT_SECRET
-python setup_canva_oauth.py # prints CANVA_REFRESH_TOKEN -> put it in .env
+cp .env.example .env              # PowerShell: Copy-Item .env.example .env
+# fill in CANVA_CLIENT_ID / CANVA_CLIENT_SECRET
+python setup_canva_oauth.py      # prints CANVA_REFRESH_TOKEN -> put it in .env
 ```
+
+Config validation is **scoped to the command**: `scripts.smoke` and
+`generate --dry-run` only need the Canva + Anthropic vars, `publish` only needs
+Notion + Metricool. You don't need a fully-populated `.env` to start testing.
 
 ### 4. Notion
 Create an internal integration ([notion.so/my-integrations](https://www.notion.so/my-integrations)),

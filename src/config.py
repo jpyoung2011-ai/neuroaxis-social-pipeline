@@ -13,20 +13,24 @@ from typing import Literal
 
 APPROVAL_MODES = ("review", "auto", "veto")
 
-_REQUIRED = (
-    "CANVA_CLIENT_ID",
-    "CANVA_CLIENT_SECRET",
-    "CANVA_REFRESH_TOKEN",
-    "CANVA_BRAND_TEMPLATE_ID",
-    "METRICOOL_TOKEN",
-    "METRICOOL_USER_ID",
-    "METRICOOL_BLOG_ID",
-    "ANTHROPIC_API_KEY",
-    "NOTION_TOKEN",
-    "NOTION_CONTENT_DB_ID",
-    "MEDIA_REPO",
-    "MEDIA_REPO_TOKEN",
-)
+_CANVA = ("CANVA_CLIENT_ID", "CANVA_CLIENT_SECRET", "CANVA_REFRESH_TOKEN",
+          "CANVA_BRAND_TEMPLATE_ID")
+_ANTHROPIC = ("ANTHROPIC_API_KEY",)
+_NOTION = ("NOTION_TOKEN", "NOTION_CONTENT_DB_ID")
+_METRICOOL = ("METRICOOL_TOKEN", "METRICOOL_USER_ID", "METRICOOL_BLOG_ID")
+_MEDIA = ("MEDIA_REPO", "MEDIA_REPO_TOKEN")
+
+_ALL = _CANVA + _ANTHROPIC + _NOTION + _METRICOOL + _MEDIA
+
+# Which env vars each entry point actually needs.
+_SCOPES: dict[str, tuple[str, ...]] = {
+    "all": _ALL,
+    "smoke": _CANVA + _ANTHROPIC,
+    "generate": _CANVA + _ANTHROPIC + _NOTION + _MEDIA,
+    "generate-dry": _CANVA + _ANTHROPIC,
+    "publish": _NOTION + _METRICOOL,
+    "publish-dry": _NOTION,
+}
 
 
 class ConfigError(RuntimeError):
@@ -80,7 +84,7 @@ class Settings:
     errors: list[str] = field(default_factory=list, compare=False)
 
     @staticmethod
-    def load(*, use_dotenv: bool = True) -> "Settings":
+    def load(*, use_dotenv: bool = True, scope: str = "all") -> "Settings":
         if use_dotenv:
             try:
                 from dotenv import load_dotenv
@@ -89,12 +93,13 @@ class Settings:
             except ImportError:  # pragma: no cover - dotenv is a hard dep in practice
                 pass
 
+        required = set(_SCOPES.get(scope, _ALL))
         errors: list[str] = []
 
         def require(key: str) -> str:
             val = os.environ.get(key, "").strip()
-            if not val:
-                errors.append(f"missing required env var: {key}")
+            if not val and key in required:
+                errors.append(f"missing required env var: {key} (needed for '{scope}')")
             return val
 
         def as_int(key: str, default: int) -> int:

@@ -19,7 +19,7 @@ from src.pipeline import cmd_generate
 
 def main() -> int:
     try:
-        settings = Settings.load()
+        settings = Settings.load(scope="smoke")
     except ConfigError as exc:
         print(exc)
         return 1
